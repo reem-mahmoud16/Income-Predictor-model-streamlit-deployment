@@ -3,14 +3,11 @@ import pandas as pd
 import pickle
 import numpy as np
 
-# --- 1. Load Model, Scaler, and Feature Columns ---
-# IMPORTANT: Ensure all four files are present in your GitHub repository!
+
 try:
-    # Loading model and artifacts
     model = pickle.load(open('income_predection.sav', 'rb')) 
     scaler = pickle.load(open('scaler.pkl', 'rb'))
     train_columns = pickle.load(open('train_columns.pkl', 'rb'))
-    # MANDATORY: Load the modes dictionary to handle missing data and maintain pipeline consistency
     imputation_modes = pickle.load(open('imputation_modes.pkl', 'rb')) 
 
     NUMERIC_COLS = ["education-num", "capital-gain", "capital-loss", "hours-per-week"]
@@ -23,7 +20,7 @@ except Exception as e:
     st.stop()
 
 
-# --- 2. The Core Data Cleaning Function (FIXED FOR STRING CONSISTENCY AND ROBUSTNESS) ---
+# --- The Core Data Cleaning Function
 def clean_single_input(data_dict, fitted_scaler, TRAIN_FEATURE_COLUMNS, numeric_cols_to_scale, modes):
     """
     Cleans and preprocesses a single row of user input data, enforcing the
@@ -33,32 +30,23 @@ def clean_single_input(data_dict, fitted_scaler, TRAIN_FEATURE_COLUMNS, numeric_
     """
     df = pd.DataFrame([data_dict])
     
-    # 1. Standardize and Impute Categorical Features
     CATEGORICAL_COLS = df.select_dtypes(include=['object']).columns
 
     for col in CATEGORICAL_COLS:
-        # **CRITICAL FIX:** Strip whitespace AND enforce Title Case for perfect OHE match with training data
-        # This resolves issues like " Private" (space) or "private" (lowercase)
         df[col] = df[col].astype(str).str.strip().str.title().replace('?', np.nan)
         
-        # Imputation (still needed for a robust app)
         if col in modes:
-             # Ensure the mode itself is also consistently cased/stripped
              mode_value = modes[col].strip().title() if isinstance(modes[col], str) else modes[col]
              df[col].fillna(mode_value, inplace=True)
 
 
-    # 2. Convert Numeric Fields to appropriate type (and clean up NaNs)
     numeric_inputs = ['age', 'education-num', 'capital-gain', 'capital-loss', 'hours-per-week']
     for col in numeric_inputs:
-        # Coerce non-numeric inputs (like empty strings) to NaN, then fill NaN with 0
         df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0) 
 
 
-    # 3. Dropping Columns (education and fnlwgt)
     df.drop(columns=['education', 'fnlwgt'], inplace=True, errors='ignore')
 
-    # 4. Feature Engineering (Occupation Grouping)
     low_impact_occupations = [
         'Adm-clerical', 'Machine-op-inspct', 'Farming-fishing',
         'Armed-Forces', 'Handlers-cleaners', 'Other-service',
@@ -66,43 +54,34 @@ def clean_single_input(data_dict, fitted_scaler, TRAIN_FEATURE_COLUMNS, numeric_
     ]
     new_category_name = 'Other-Low-Impact-occupation'
     
-    # Use vectorized .replace() for robust grouping. Needs Title Case input.
     df['occupation'] = df['occupation'].replace(
         [o.title() for o in low_impact_occupations], 
         new_category_name
     )
 
 
-    # 5. Feature Engineering (Age Binarization)
     AGE_THRESHOLD = 42
     df['is_over_40'] = (df['age'] >= AGE_THRESHOLD).astype(int)
     df.drop('age', axis=1, inplace=True)
 
-    # 6. One-Hot Encoding
     categorical_cols_for_ohe = df.select_dtypes(include=['object']).columns
     df_encoded = pd.get_dummies(df, columns=categorical_cols_for_ohe, drop_first=True)
 
-    # 7. Reindexing: Match all columns from the training set, filling missing OHE columns with 0
-    # This is vital: it ensures the model always receives the expected column order/count.
     df_final = df_encoded.reindex(columns=TRAIN_FEATURE_COLUMNS, fill_value=0)
 
-    # 8. Scaling (Apply the fitted scaler to the numeric columns)
     df_final[numeric_cols_to_scale] = fitted_scaler.transform(df_final[numeric_cols_to_scale])
 
     return df_final
 
 
-# --- 3. Streamlit UI and Prediction Logic ---
+# --- Streamlit UI and Prediction Logic ---
 
 st.title("Income State Predictor")
 st.markdown("Enter the demographic and financial details below to predict the income level (>$50K or <=$50K).")
 
-# Layout columns for cleaner input
 col1, col2 = st.columns(2)
 
-# Collect user input using standard text inputs
 with col1:
-    # Default inputs set to likely trigger a high income prediction for easy testing
     age = st.text_input('Age', '55') 
     workclass = st.text_input('Workclass', 'Private')
     fnlwgt = st.text_input('Fnlwgt (ignored in model)', '170000')
@@ -123,7 +102,6 @@ with col2:
 
 # Prediction Button
 if st.button('Predict Income'):
-    # 1. Create the input dictionary from the user's data
     user_input = {
         'age': age,
         'workclass': workclass,
@@ -141,7 +119,7 @@ if st.button('Predict Income'):
         'native-country': native_country
     }
     
-    # 2. Preprocess the input data
+    # Preprocess the input data
     try:
         processed_data = clean_single_input(
             user_input, 
@@ -151,13 +129,13 @@ if st.button('Predict Income'):
             imputation_modes
         )
 
-        # 3. Make Prediction
+        # Make Prediction
         probability_high_income = model.predict_proba(processed_data)[:, 1][0]
         
         THRESHOLD = 0.35
         prediction = 1 if probability_high_income > THRESHOLD else 0
         
-        # 4. Display Result
+        # Display Result
         st.subheader("Prediction Result:")
         
         if prediction == 1:
