@@ -135,7 +135,7 @@ if st.button('Predict Income'):
         probability_high_income = model.predict_proba(processed_data)[:, 1][0]
         
         # Use a threshold (0.35 from your notebook)
-        THRESHOLD = 0.35 
+        THRESHOLD = 0.1
         prediction = 1 if probability_high_income > THRESHOLD else 0
         
         # 4. Display Result
